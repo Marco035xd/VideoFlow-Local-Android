@@ -1,0 +1,57 @@
+plugins { id 'com.android.application' }
+def localSigning = new Properties()
+def signingFile = rootProject.file('.signing/signing.properties')
+if (signingFile.exists()) signingFile.withInputStream { localSigning.load(it) }
+
+android {
+    namespace 'com.videoflow.local'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.videoflow.local'
+        minSdk 29
+        targetSdk 35
+        versionCode 3
+        versionName '1.0.2'
+    }
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+            universalApk true
+        }
+    }
+    packaging { jniLibs { useLegacyPackaging true } }
+    signingConfigs {
+        localRelease {
+            if (signingFile.exists()) {
+                storeFile rootProject.file(localSigning['storeFile'])
+                storePassword localSigning['storePassword']
+                keyAlias localSigning['keyAlias']
+                keyPassword localSigning['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingFile.exists() ? signingConfigs.localRelease : signingConfigs.debug
+        }
+    }
+    lint { abortOnError true }
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.media3:media3-exoplayer:1.5.1'
+    implementation 'androidx.media3:media3-ui:1.5.1'
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
+    implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
+}
