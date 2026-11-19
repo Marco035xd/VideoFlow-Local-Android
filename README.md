@@ -18,7 +18,7 @@ La APK funciona en el teléfono sin conectarse a una PC. No hay un servidor de V
 
 | Función | Adaptación Android |
 | --- | --- |
-| YouTube, Facebook y TikTok | Análisis y descargas mediante yt-dlp ejecutado en el dispositivo. También recibe enlaces desde **Compartir → VideoFlow Local**. |
+| YouTube, Facebook, TikTok, Reddit e Instagram | Análisis y descargas con yt-dlp en el dispositivo. También recibe enlaces desde **Compartir → VideoFlow Local**. |
 | Lotes de enlaces | Un enlace por línea; cola persistente, progreso, cancelación y reintento. De 1 a 3 trabajos simultáneos. |
 | Listas y canales de YouTube | Importación en segundo plano. Un trabajo por video accesible, con omisión de duplicados dentro de la colección. |
 | Video | MP4, MKV, WEBM, MOV y AVI, con selección de altura según los formatos disponibles. |
@@ -47,11 +47,13 @@ Los formatos, alturas, idiomas y acceso dependen de cada publicación y del siti
 5. Usa **Listas y canales** para una colección de YouTube.
 6. En **Herramientas**, selecciona varios archivos locales para convertir o comprimir.
 
+En Reddit puedes pegar el enlace de una publicación o un enlace directo al video. En Instagram puedes pegar un Reel o una publicación con video. Si una publicación incluye varios videos y el sitio los devuelve como una colección, se toma el primero. Cuando el sitio pide iniciar sesión, puedes importar tus cookies en Configuración.
+
 ## Sesiones de los sitios
 
-Android mantiene separadas las sesiones de Chrome, Brave, Facebook y otras apps. Esta versión no intenta leerlas. Si el sitio solicita iniciar sesión o verificar acceso, usa **Configuración → Importar cookies.txt** con un archivo propio en formato Netscape.
+Android mantiene separadas las sesiones de Chrome, Brave, Facebook y otras apps. Si el sitio solicita iniciar sesión o verificar el acceso, usa **Configuración → Importar cookies.txt** con un archivo propio en formato Netscape.
 
-Solo se aceptan cookies de YouTube, Facebook, TikTok y sus subdominios pertinentes. El archivo importado queda en almacenamiento privado sin copia de seguridad, separado del historial. Cada proceso usa una copia temporal; se elimina al terminar. **Olvidar sesión** borra la copia importada. No se necesita importar cookies para los videos que el sitio entregue sin sesión. Una sesión no garantiza el acceso a todas las publicaciones.
+El importador acepta cookies vigentes de los dominios de las plataformas compatibles. Guarda el archivo en almacenamiento privado sin copia de seguridad. Cada proceso usa una copia temporal y la elimina al terminar. **Olvidar sesión** borra la copia importada.
 
 ## Recuperación y almacenamiento
 

@@ -13,6 +13,7 @@ import kotlin.jvm.functions.Function3;
 import org.json.*;
 import java.io.*;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
@@ -20,6 +21,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Android binaries run locally; no PC or remote download server is involved. */
 public final class Engine {
+    private static final Map<String, List<String>> PLATFORM_DOMAINS = Map.of(
+            "YouTube", List.of("youtube.com", "youtu.be", "youtube-nocookie.com"),
+            "Facebook", List.of("facebook.com", "fb.watch", "fb.com"),
+            "TikTok", List.of("tiktok.com"),
+            "Reddit", List.of("reddit.com", "redd.it", "redditmedia.com"),
+            "Instagram", List.of("instagram.com", "instagr.am"));
+    private static final Set<String> SINGLE_VIDEO_POSTS = Set.of("Reddit", "Instagram");
     private static volatile boolean initialized;
     private static volatile String version = "", initializationError = "";
     private static final Map<String, Process> conversions = new ConcurrentHashMap<>();
@@ -46,20 +54,38 @@ public final class Engine {
         version = YoutubeDL.getInstance().execute(request, null, null).getOut().trim();
     }
     public static String checkedUrl(String raw) {
-        String value = raw.trim(); if (value.length() > 4096) throw new IllegalArgumentException("invalid_url");
-        try {
-            URI uri = new URI(value); String host = uri.getHost();
-            if (host == null || uri.getUserInfo() != null || !(uri.getScheme().equals("https") || uri.getScheme().equals("http"))) throw new Exception();
-            host = host.toLowerCase(Locale.ROOT);
-            for (String domain : List.of("youtube.com", "youtu.be", "facebook.com", "fb.watch", "fb.com", "tiktok.com")) {
-                if (host.equals(domain) || host.endsWith("." + domain)) return value;
+        String value = raw.trim();
+        source(value);
+        return value;
+    }
+    private static boolean matchesDomain(String host, String domain) {
+        return host.equals(domain) || host.endsWith("." + domain);
+    }
+    private static String sourceForHost(String host) {
+        for (var platform : PLATFORM_DOMAINS.entrySet()) {
+            for (String domain : platform.getValue()) {
+                if (matchesDomain(host, domain)) return platform.getKey();
             }
-        } catch (Exception ignored) {}
+        }
+        return null;
+    }
+    public static String source(String url) {
+        String value = url.trim();
+        if (value.length() > 4096) throw new IllegalArgumentException("invalid_url");
+        try {
+            URI uri = new URI(value);
+            String host = uri.getHost();
+            if (host != null && uri.getUserInfo() == null
+                    && ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))) {
+                String platform = sourceForHost(host.toLowerCase(Locale.ROOT).replaceFirst("\\.$", ""));
+                if (platform != null) return platform;
+            }
+        } catch (URISyntaxException ignored) { }
         throw new IllegalArgumentException("invalid_url");
     }
-    public static String source(String url) { return url.contains("tiktok.com") ? "TikTok" : (url.contains("facebook.com") || url.contains("fb.watch") || url.contains("fb.com")) ? "Facebook" : "YouTube"; }
     private static YoutubeDLRequest base(Context context, String url) {
         YoutubeDLRequest request = new YoutubeDLRequest(checkedUrl(url));
+        if (SINGLE_VIDEO_POSTS.contains(source(url))) request.addOption("--playlist-items", "1");
         request.addOption("--ignore-config"); request.addOption("--no-warnings"); request.addOption("--socket-timeout", 20);
         request.addOption("--plugin-dirs", new File(context.getNoBackupFilesDir(), "plugins").getAbsolutePath());
         request.addOption("--use-postprocessor", "VideoFlowCDN:when=pre_process");
@@ -85,17 +111,27 @@ public final class Engine {
         finally { if (copy != null) copy.delete(); }
     }
     public static JSONObject analyze(Context context, String url) throws Exception {
+        String platform = source(url);
         init(context);
         YoutubeDLRequest request = base(context, url); request.addOption("--no-playlist"); request.addOption("--skip-download"); request.addOption("--dump-single-json");
         String out = execute(context, request, "analysis-" + UUID.randomUUID(), null).getOut();
-        JSONObject info = new JSONObject(out); JSONObject result = new JSONObject();
+        JSONObject info = new JSONObject(out);
+        if (SINGLE_VIDEO_POSTS.contains(platform)) {
+            while (info != null && info.optJSONArray("entries") != null) info = info.optJSONArray("entries").optJSONObject(0);
+            if (info == null) throw new IllegalArgumentException("post_without_video");
+        }
+        JSONObject result = new JSONObject();
         for (String key : List.of("title", "duration", "uploader", "thumbnail", "id", "webpage_url")) if (info.has(key)) Store.put(result, key, info.opt(key));
-        Store.put(result, "url", checkedUrl(url)); Store.put(result, "source", source(url));
+        Store.put(result, "url", url.trim()); Store.put(result, "source", platform);
         JSONArray formats = info.optJSONArray("formats"), tracks = new JSONArray();
         Map<String, JSONObject> groups = new LinkedHashMap<>(); TreeSet<Integer> heights = new TreeSet<>(Comparator.reverseOrder());
+        boolean hasVideo = false;
         if (formats != null) for (int i = 0; i < formats.length(); i++) {
             JSONObject f = formats.optJSONObject(i); if (f == null || f.optBoolean("has_drm") || f.optString("url").isEmpty()) continue;
-            int height = f.optInt("height"); if (height > 0) heights.add(height);
+            String codec = f.isNull("vcodec") ? "" : f.optString("vcodec");
+            boolean video = !codec.equals("none") && (!codec.isEmpty() || Set.of("mp4", "mov", "mkv", "webm").contains(f.optString("ext")));
+            hasVideo |= video;
+            int height = f.optInt("height"); if (video && height > 0) heights.add(height);
             if (f.optString("acodec", "none").equals("none")) continue;
             String lang = f.optString("language", ""), note = f.optString("format_note", "").split(",", 2)[0].trim();
             if (note.matches("(?i)(audio[ _-]*)?(low|medium|high|best)|dash audio|audio only|hls|dash|\\d+p(\\d+)?|\\d+(\\.\\d+)?k|drc")) note = "";
@@ -107,12 +143,15 @@ public final class Engine {
             }
             String id = f.optString("format_id"); if (id.matches("[A-Za-z0-9_.+-]{1,100}")) group.optJSONArray("ids").put(id);
         }
+        if (SINGLE_VIDEO_POSTS.contains(platform) && !hasVideo) throw new IllegalArgumentException("post_without_video");
         for (JSONObject group : groups.values()) if (group.optJSONArray("ids").length() > 0) tracks.put(group);
         JSONArray resolutions = new JSONArray(); for (Integer h : heights) resolutions.put(h);
         Store.put(result, "tracks", tracks); Store.put(result, "heights", resolutions); return result;
     }
     public static JSONArray collection(Context context, JSONObject job) throws Exception {
-        init(context); YoutubeDLRequest request = base(context, job.optString("url"));
+        String url = job.optString("url");
+        if (!"YouTube".equals(source(url))) throw new IllegalArgumentException("invalid_collection");
+        init(context); YoutubeDLRequest request = base(context, url);
         request.addOption("--yes-playlist"); request.addOption("--flat-playlist"); request.addOption("--skip-download");
         request.addOption("--ignore-errors"); request.addOption("--dump-single-json");
         JSONObject info = new JSONObject(execute(context, request, job.optString("id"), null).getOut());
@@ -122,7 +161,8 @@ public final class Engine {
     }
     public static JSONArray download(Context context, JSONObject job, Progress progress) throws Exception {
         init(context); String id = job.optString("id"); File work = workDir(context, id);
-        YoutubeDLRequest request = base(context, job.optString("url"));
+        String url = job.optString("url");
+        YoutubeDLRequest request = base(context, url);
         if (cancelled.contains(id)) throw new InterruptedException("cancelled");
         request.addOption("--no-playlist"); request.addOption("--newline"); request.addOption("--progress"); request.addOption("--no-quiet"); request.addOption("--no-mtime");
         request.addOption("--no-overwrites"); request.addOption("--restrict-filenames"); request.addOption("--trim-filenames", 160);
@@ -145,6 +185,7 @@ public final class Engine {
         else if (!track.isEmpty()) selector = "bestvideo" + height + "+bestaudio" + track + "/best" + height + track;
         else if (format.equals("mp4")) selector = "bestvideo" + height + "[ext=mp4]+bestaudio[ext=m4a]/best" + height + "[ext=mp4]/bestvideo" + height + "+bestaudio/best" + height;
         else selector = "bestvideo" + height + "+bestaudio/best" + height;
+        if (mode.equals("video") && track.isEmpty() && SINGLE_VIDEO_POSTS.contains(source(url))) selector += "/bestvideo" + height;
         request.addOption("-f", selector);
         if (audio) {
             request.addOption("-x"); request.addOption("--audio-format", format.equals("ogg") ? "vorbis" : format);
@@ -288,7 +329,10 @@ public final class Engine {
             if (!host.matches("[a-z0-9.-]+") || !Set.of("TRUE", "FALSE").contains(fields[1]) || !Set.of("TRUE", "FALSE").contains(fields[3])) throw new IOException("cookie_invalid");
             if (!fields[4].isEmpty() && !fields[4].matches("\\d{1,12}")) throw new IOException("cookie_invalid");
             if (!fields[4].isEmpty() && !fields[4].equals("0") && Long.parseLong(fields[4]) < System.currentTimeMillis() / 1000) continue;
-            for (String domain : List.of("youtube.com", "youtu.be", "facebook.com", "fb.com", "tiktok.com", "googlevideo.com")) if (host.equals(domain) || host.endsWith("." + domain)) { accepted.append(line).append('\n'); count++; break; }
+            if (sourceForHost(host) != null || matchesDomain(host, "googlevideo.com")) {
+                accepted.append(line).append('\n');
+                count++;
+            }
         }
         if (count == 0) throw new IOException("cookie_invalid");
         synchronized (sessionLock) { Files.write(new File(context.getNoBackupFilesDir(), "session.txt").toPath(), accepted.toString().getBytes(StandardCharsets.UTF_8)); }
@@ -297,7 +341,11 @@ public final class Engine {
     public static void forgetCookies(Context context) { synchronized (sessionLock) { new File(context.getNoBackupFilesDir(), "session.txt").delete(); } }
     public static String error(Exception exception) {
         String text = String.valueOf(exception.getMessage()), lower = text.toLowerCase(Locale.ROOT);
-        if (lower.contains("sign in") || lower.contains("not a bot") || lower.contains("login required")) return "session_required";
+        if (lower.contains("no video in this post") || lower.contains("no media found")) return "post_without_video";
+        if (lower.contains("sign in") || lower.contains("not a bot") || lower.contains("login required")
+                || lower.contains("authentication is required") || lower.contains("requires authentication")
+                || lower.contains("rate-limit for accessing posts anonymously") || lower.contains("logged-in")
+                || lower.contains("unable to access the reddit api")) return "session_required";
         if (lower.contains("timed out") || lower.contains("network is unreachable") || lower.contains("connection refused") || lower.contains("connection reset") || lower.contains("unable to resolve")) return "network_error";
         if (lower.contains("requested format is not available")) return "format_unavailable";
         if (lower.contains("cannot parse data")) return "session_required";

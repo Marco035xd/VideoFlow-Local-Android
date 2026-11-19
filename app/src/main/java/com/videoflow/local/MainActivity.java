@@ -141,7 +141,13 @@ public class MainActivity extends AppCompatActivity {
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject j = items.getJSONObject(i); String kind = j.optString("kind");
                     if (!Set.of("download", "collection", "convert", "compress").contains(kind)) throw new IllegalArgumentException("invalid_request");
-                    if (kind.equals("download") || kind.equals("collection")) { Engine.checkedUrl(j.optString("url")); Store.put(j, "source", Engine.source(j.optString("url"))); }
+                    if (kind.equals("download") || kind.equals("collection")) {
+                        String url = Engine.checkedUrl(j.optString("url"));
+                        String source = Engine.source(url);
+                        if (kind.equals("collection") && !source.equals("YouTube")) throw new IllegalArgumentException("invalid_collection");
+                        Store.put(j, "url", url);
+                        Store.put(j, "source", source);
+                    }
                     else {
                         File input = new File(j.optString("sourcePath")).getCanonicalFile();
                         File allowed = new File(getNoBackupFilesDir(), "inputs").getCanonicalFile();
