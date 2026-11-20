@@ -21,6 +21,7 @@ public class MainActivity extends AppCompatActivity {
     private Store store;
     private WallpaperGallery wallpapers;
     private ProfileImports profileImports;
+    private DownloadGallery downloadGallery;
     private final ExecutorService io = Executors.newFixedThreadPool(2);
     private final Handler main = new Handler(Looper.getMainLooper());
     private String pickerId, pickerKind, sharedText = "";
@@ -29,6 +30,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(state); store = Store.get(this);
         wallpapers = new WallpaperGallery(this);
         profileImports = new ProfileImports(this);
+        downloadGallery = new DownloadGallery(this, store);
         web = new WebView(this); setContentView(web);
         if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) WebView.setWebContentsDebuggingEnabled(true);
         // Keep system bar insets outside the web UI, including Android 15 edge-to-edge.
@@ -47,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
         WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .addPathHandler("/wallpaper-images/", wallpapers::image)
+                .addPathHandler(DownloadGallery.THUMBNAILS, downloadGallery::thumbnail)
                 .addPathHandler(ProfileImports.PATH, profileImports::open).build();
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) { return loader.shouldInterceptRequest(request.getUrl()); }
@@ -93,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
                 JSONObject state = store.snapshot(); Store.put(state, "engine", Engine.status()); Store.put(state, "session", Engine.hasCookies(this)); return state;
             }
             case "analyze": return Engine.analyze(this, data.optString("url"));
+            case "downloadGallery": return downloadGallery.list();
             case "settings": store.configure(data); return store.settings();
             case "soundSettings": return store.soundSettings(data);
             case "releaseProfileMedia": profileImports.release(data.optString("path")); return true;
@@ -201,7 +205,7 @@ public class MainActivity extends AppCompatActivity {
         if (!"content".equals(uri.getScheme())) return false;
         for (JSONObject j : store.jobs()) if (containsUri(j.optJSONArray("outputs"), uri.toString())) return true;
         JSONArray history = store.snapshot().optJSONArray("history"); for (int i = 0; i < history.length(); i++) if (containsUri(history.optJSONObject(i).optJSONArray("outputs"), uri.toString())) return true;
-        return false;
+        return store.hasGalleryUri(uri.toString());
     }
     private boolean containsUri(JSONArray files, String uri) { if (files != null) for (int i = 0; i < files.length(); i++) if (uri.equals(files.optJSONObject(i).optString("uri"))) return true; return false; }
     private void requestNotifications() { if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101); }

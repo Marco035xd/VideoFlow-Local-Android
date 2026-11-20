@@ -18,7 +18,7 @@ La APK funciona en el teléfono sin conectarse a una PC. No hay un servidor de V
 
 | Función | Adaptación Android |
 | --- | --- |
-| YouTube, Facebook, TikTok, Reddit e Instagram | Análisis y descargas con yt-dlp en el dispositivo. También recibe enlaces desde **Compartir → VideoFlow Local**. |
+| YouTube, Facebook, TikTok, Reddit, Instagram, X y clips de Twitch | Análisis y descargas con yt-dlp en el dispositivo. También recibe enlaces desde **Compartir → VideoFlow Local**. |
 | Lotes de enlaces | Un enlace por línea; cola persistente, progreso, cancelación y reintento. De 1 a 3 trabajos simultáneos. |
 | Listas y canales de YouTube | Importación en segundo plano. Un trabajo por video accesible, con omisión de duplicados dentro de la colección. |
 | Video | MP4, MKV, WEBM, MOV y AVI, con selección de altura según los formatos disponibles. |
@@ -27,6 +27,7 @@ La APK funciona en el teléfono sin conectarse a una PC. No hay un servidor de V
 | Conversión local | Selección múltiple de videos y audios desde el selector de Android. FFmpeg crea archivos nuevos y conserva los originales. |
 | Compresión | MP4 H.264/AAC, tres intensidades y límite opcional de 1080p/720p/480p. Se comprueba el tamaño real y se rechaza un resultado mayor o igual que el original. No promete un porcentaje exacto. |
 | Historial | Registro local de los trabajos completados, búsqueda, reproducción, compartir y apertura externa. Limpiar el historial tiene confirmación y conserva los archivos. |
+| Galería de descargas | Miniaturas de los videos descargados, tarjetas de altura uniforme y filtro por plataforma. Al tocar una tarjeta se abre el reproductor. |
 | Retiradas temporales | Persisten 7, 15 o 30 días. Restauración individual o de todas, sin descargar de nuevo. Vaciar exige confirmación y conserva archivos e historial. |
 | Apariencia | Modo del sistema, claro y oscuro, seis temas y ocho opciones de acento. En **Fondos de pantalla** puedes guardar tus fotos, volver a elegirlas y ajustar la opacidad de cada una entre 25 % y 100 %. |
 | Idiomas | Español, inglés y portugués. |
@@ -48,6 +49,10 @@ Los formatos, alturas, idiomas y acceso dependen de cada publicación y del siti
 6. En **Herramientas**, selecciona varios archivos locales para convertir o comprimir.
 
 En Reddit puedes pegar el enlace de una publicación o un enlace directo al video. En Instagram puedes pegar un Reel o una publicación con video. Si una publicación incluye varios videos y el sitio los devuelve como una colección, se toma el primero. Cuando el sitio pide iniciar sesión, puedes importar tus cookies en Configuración.
+
+En **X** se admiten enlaces de publicaciones con video de x.com y twitter.com. En **Twitch** se admiten enlaces de clips, tanto de clips.twitch.tv como de twitch.tv. Usa el mismo selector de formato y calidad de las demás plataformas.
+
+En el menú **Más → Galería** o en **Descargas → Ver galería** encontrarás los videos guardados. Los títulos ocupan hasta tres líneas. La galería incorpora los videos disponibles que ya figuren en el historial o la cola al actualizar y conserva sus registros al limpiar esas listas.
 
 ## Sesiones de los sitios
 

@@ -4,4 +4,4 @@
 @media(min-width:1050px){aside{transform:none;width:245px;z-index:8}.main-column{margin-left:245px}.bottom-nav,.menu-toggle{display:none}header{padding:20px 33px}main{padding-bottom:45px}.job-list{grid-template-columns:1fr}.hero{margin-top:5px}#toast{left:275px;bottom:25px}.engine-pill{max-width:160px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 
-@media(min-width:600px){.platforms{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(min-width:600px){.platforms{grid-template-columns:repeat(auto-fit,minmax(94px,1fr))}}

@@ -26,8 +26,10 @@ public final class Engine {
             "Facebook", List.of("facebook.com", "fb.watch", "fb.com"),
             "TikTok", List.of("tiktok.com"),
             "Reddit", List.of("reddit.com", "redd.it", "redditmedia.com"),
-            "Instagram", List.of("instagram.com", "instagr.am"));
-    private static final Set<String> SINGLE_VIDEO_POSTS = Set.of("Reddit", "Instagram");
+            "Instagram", List.of("instagram.com", "instagr.am"),
+            "X", List.of("x.com", "twitter.com"),
+            "Twitch", List.of("twitch.tv"));
+    private static final Set<String> SINGLE_VIDEO_POSTS = Set.of("Reddit", "Instagram", "X", "Twitch");
     private static volatile boolean initialized;
     private static volatile String version = "", initializationError = "";
     private static final Map<String, Process> conversions = new ConcurrentHashMap<>();
@@ -69,6 +71,15 @@ public final class Engine {
         }
         return null;
     }
+    static boolean supportsPlatform(String platform) { return PLATFORM_DOMAINS.containsKey(platform); }
+
+    private static boolean isTwitchClip(String host, String path) {
+        if (host.equals("clips.twitch.tv")) {
+            return !path.equals("/embed") && path.matches("/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+/?");
+        }
+        return Set.of("twitch.tv", "www.twitch.tv", "go.twitch.tv", "m.twitch.tv").contains(host)
+                && path.matches("/(?:[^/]+/)?clip/[A-Za-z0-9_-]+/?");
+    }
     public static String source(String url) {
         String value = url.trim();
         if (value.length() > 4096) throw new IllegalArgumentException("invalid_url");
@@ -77,7 +88,15 @@ public final class Engine {
             String host = uri.getHost();
             if (host != null && uri.getUserInfo() == null
                     && ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))) {
-                String platform = sourceForHost(host.toLowerCase(Locale.ROOT).replaceFirst("\\.$", ""));
+                host = host.toLowerCase(Locale.ROOT).replaceFirst("\\.$", "");
+                String platform = sourceForHost(host);
+                String path = uri.getPath();
+                if ("Twitch".equals(platform) && !isTwitchClip(host, path)) {
+                    throw new IllegalArgumentException("twitch_clip_required");
+                }
+                if ("X".equals(platform) && !path.matches("/(?:(?:i/web|[^/]+)/status|statuses)/[0-9]+(?:/(?:video|photo)/[0-9]+)?/?")) {
+                    throw new IllegalArgumentException("x_post_required");
+                }
                 if (platform != null) return platform;
             }
         } catch (URISyntaxException ignored) { }
@@ -222,9 +241,20 @@ public final class Engine {
                 if (!silent.isFile() || silent.length() == 0) throw new IOException("no_output");
                 if (!output.delete() || !silent.renameTo(output)) throw new IOException("save_failed");
             }
-            result.put(publish(context, output, id));
+            double duration = mode.equals("audio") ? 0 : videoDuration(output);
+            JSONObject published = publish(context, output, id);
+            if (duration > 0) Store.put(published, "duration", duration);
+            result.put(published);
         }
         return result;
+    }
+    private static double videoDuration(File file) {
+        try (MediaMetadataRetriever retriever = new MediaMetadataRetriever()) {
+            retriever.setDataSource(file.getAbsolutePath());
+            return Long.parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)) / 1000.0;
+        } catch (IOException | RuntimeException ignored) {
+            return 0;
+        }
     }
     public static File workDir(Context context, String id) {
         if (!id.matches("[a-f0-9-]{36}")) throw new IllegalArgumentException("invalid_id");

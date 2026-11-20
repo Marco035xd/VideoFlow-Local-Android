@@ -27,6 +27,12 @@ public final class Store {
         if (!root.has("settings")) put(root, "settings", new JSONObject());
         if (!root.has("jobs")) put(root, "jobs", new JSONArray());
         if (!root.has("history")) put(root, "history", new JSONArray());
+        if (!root.has("gallery")) {
+            put(root, "gallery", new JSONObject());
+            JSONArray history = root.optJSONArray("history");
+            for (int i = 0; i < history.length(); i++) archiveVideos(history.optJSONObject(i));
+            for (JSONObject job : jobs()) archiveVideos(job);
+        }
         JSONObject settings = root.optJSONObject("settings");
         defaults(settings, "language", "es"); defaults(settings, "theme", "videoflow");
         defaults(settings, "mode", "dark"); defaults(settings, "accent", "theme");
@@ -97,7 +103,49 @@ public final class Store {
         JSONArray history = root.optJSONArray("history");
         boolean exists = false; for (int i = 0; i < history.length(); i++) if (id.equals(history.optJSONObject(i).optString("id"))) exists = true;
         if (!exists) { JSONObject h = cloneJson(j); h.remove("sourcePath"); h.remove("cookies"); h.remove("formatIds"); history.put(h); }
+        archiveVideos(j);
         save();
+    }
+    private void archiveVideos(JSONObject job) {
+        if (job == null || !"completed".equals(job.optString("status")) || !"download".equals(job.optString("kind"))) return;
+        String id = job.optString("id");
+        String source = job.optString("source");
+        JSONArray outputs = job.optJSONArray("outputs");
+        if (outputs == null || !id.matches("[a-f0-9-]{36}") || !Engine.supportsPlatform(source)) return;
+        JSONObject gallery = root.optJSONObject("gallery");
+        for (int i = 0; i < outputs.length(); i++) {
+            JSONObject output = outputs.optJSONObject(i);
+            if (output == null || !output.optString("mime").startsWith("video/") || output.optString("uri").isEmpty()) continue;
+            String key = id + "-" + i;
+            if (gallery.has(key)) continue;
+            String title = job.optString("title");
+            JSONObject item = cloneJson(output);
+            put(item, "id", key);
+            put(item, "source", source);
+            put(item, "title", title.isBlank() || title.equals(job.optString("url")) ? output.optString("name") : title);
+            put(item, "finished", job.optLong("finished"));
+            put(gallery, key, item);
+        }
+    }
+    public synchronized List<JSONObject> galleryVideos() {
+        JSONObject gallery = root.optJSONObject("gallery");
+        List<JSONObject> videos = new ArrayList<>(gallery.length());
+        for (Iterator<String> ids = gallery.keys(); ids.hasNext();) {
+            videos.add(cloneJson(gallery.optJSONObject(ids.next())));
+        }
+        videos.sort(Comparator.<JSONObject>comparingLong(video -> video.optLong("finished")).reversed());
+        return videos;
+    }
+    public synchronized String galleryUri(String id) {
+        JSONObject video = root.optJSONObject("gallery").optJSONObject(id);
+        return video == null ? "" : video.optString("uri");
+    }
+    public synchronized boolean hasGalleryUri(String uri) {
+        JSONObject gallery = root.optJSONObject("gallery");
+        for (Iterator<String> ids = gallery.keys(); ids.hasNext();) {
+            if (uri.equals(gallery.optJSONObject(ids.next()).optString("uri"))) return true;
+        }
+        return false;
     }
     public synchronized void remove(String id) {
         JSONObject j = job(id);
@@ -119,7 +167,13 @@ public final class Store {
         for (JSONObject j : jobs()) if (j.optLong("removedAt") == 0 || j.optLong("removedAt") > cutoff) keep.put(j);
         put(root, "jobs", keep);
     }
-    public synchronized JSONObject snapshot() { purgeExpired(); return cloneJson(root); }
+    public synchronized JSONObject snapshot() {
+        purgeExpired();
+        JSONObject state = new JSONObject();
+        for (String key : List.of("settings", "jobs", "history")) put(state, key, root.opt(key));
+        put(state, "gallerySize", root.optJSONObject("gallery").length());
+        return cloneJson(state);
+    }
     public synchronized void save() {
         FileOutputStream output = null;
         try {
