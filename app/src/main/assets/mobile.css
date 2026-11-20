@@ -5,3 +5,5 @@
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 
 @media(min-width:600px){.platforms{grid-template-columns:repeat(auto-fit,minmax(94px,1fr))}}
+
+.job { overflow-wrap: anywhere; }
