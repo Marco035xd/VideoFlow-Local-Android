@@ -30,7 +30,7 @@ window.nativeReply=(id,result,error)=>{const item=pending.get(id);if(!item)retur
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').hidden=true,5500)}
 async function action(fn){try{return await fn()}catch(e){window.VideoFlowSounds?.play('error');toast(t(e.message));return null}}
 function translate(){document.documentElement.lang=cfg.language;$$('[data-i]').forEach(el=>el.textContent=t(el.dataset.i));$$('[data-placeholder]').forEach(el=>el.placeholder=t(el.dataset.placeholder));$('#pageTitle').textContent=t(currentPage==='home'?'newDownload':currentPage);paintIcons();}
-function navigate(page){if(!$('#page-'+page))return;currentPage=page;$$('.page').forEach(el=>el.classList.toggle('active-page',el.id==='page-'+page));$$('[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===page));$('#pageTitle').textContent=t(page==='home'?'newDownload':page);closeMenu();window.scrollTo({top:0});if(page==='history')renderHistory();if(page==='player')renderPlayer();if(page==='gallery')loadDownloadGallery(true);}
+function navigate(page){if(!$('#page-'+page))return;currentPage=page;$$('.page').forEach(el=>el.classList.toggle('active-page',el.id==='page-'+page));$$('[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===page));$('#pageTitle').textContent=t(page==='home'?'newDownload':page);closeMenu();window.scrollTo({top:0});if(page==='history')renderHistory();if(page==='player')renderPlayer();if(page==='gallery')loadDownloadGallery(true);if(page==='collections')scheduleEstimate();}
 function closeMenu(){$('#drawer').classList.remove('open');$('#scrim').hidden=true;}
 function openMenu(){$('#drawer').classList.add('open');$('#scrim').hidden=false;}
 window.goBack=()=>{if($('#drawer').classList.contains('open'))closeMenu();else if(currentPage!=='home')navigate('home');};
@@ -62,11 +62,96 @@ async function analyze(){const urls=urlsFrom($('#urls').value);if(!urls.length)r
 async function enqueueDownloads(collection=false){const urls=urlsFrom($(collection?'#collectionUrl':'#urls').value);if(!urls.length)return toast(t('selectOne'));if(collection&&urls.length!==1)return toast(t('invalid_collection'));const options=readOptions($(collection?'#collectionOptions':'#homeOptions'));const jobs=urls.map(url=>({kind:collection?'collection':'download',url,title:analyzed&&analysisUrl===url&&!collection?analyzed.title:url,...options}));if(!collection&&jobs.length===1&&analyzed&&analysisUrl===urls[0]&&$('#track').value!==''&&options.mode!=='silent'){const track=analyzed.tracks[Number($('#track').value)];if(track){jobs[0].formatIds=track.ids;jobs[0].trackLabel=track.label;}}await rpc('enqueue',{jobs});toast(t('added'));navigate('downloads');await refresh();}
 function bytes(value){const n=Number(value)||0;if(n<1024)return n+' B';if(n<1048576)return(n/1024).toFixed(1)+' KB';if(n<1073741824)return(n/1048576).toFixed(1)+' MB';return(n/1073741824).toFixed(2)+' GB';}
 function duration(value){if(!value)return'';const n=Math.floor(value);return n>=3600?Math.floor(n/3600)+':'+String(Math.floor(n%3600/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0'):Math.floor(n/60)+':'+String(n%60).padStart(2,'0');}
+
+const preview = {key: '', request: null, result: null, error: '', timer: 0, busy: false};
+
+function renderCollectionEstimate() {
+  const result = preview.result;
+  const hasSize = result?.estimated > 0;
+  $('#collectionEstimate').hidden = !preview.request;
+  $('#estimateLabel').textContent = t(hasSize && result.estimated < result.total ? 'sizeSubtotal' : 'sizeEstimate');
+  $('#estimateBytes').textContent = hasSize ? '≈ ' + bytes(result.bytes) : '';
+  $('#retryEstimate').hidden = !preview.error;
+  let detail = t(preview.error || 'estimatingSize');
+  if (hasSize) {
+    detail = t('estimatedVideos').replace('{count}', result.estimated).replace('{total}', result.total);
+    if (result.projectedFrom) detail += ' ' + t('sizeProjection').replace('{count}', result.projectedFrom);
+    detail += ' ' + t('sizeMayVary');
+  }
+  $('#estimateDetail').textContent = detail;
+}
+
+function scheduleEstimate(force = false) {
+  const input = $('#collectionUrl').value.trim();
+  const request = input ? {url: input, ...readOptions($('#collectionOptions'))} : null;
+  const key = JSON.stringify([request, cfg.connection, snapshot.session]);
+  if (!force && preview.key === key) {
+    renderCollectionEstimate();
+    return;
+  }
+  preview.key = key;
+  preview.request = request;
+  preview.result = null;
+  preview.error = '';
+  clearTimeout(preview.timer);
+  preview.timer = request ? setTimeout(calculateEstimate, 650) : 0;
+  renderCollectionEstimate();
+}
+
+async function calculateEstimate() {
+  preview.timer = 0;
+  if (preview.busy || !preview.request) return;
+  const request = preview.request;
+  preview.busy = true;
+  try {
+    const result = await rpc('estimateCollection', request);
+    if (request !== preview.request) return;
+    if (result.estimated > 0) preview.result = result;
+    else preview.error = 'sizeUnavailable';
+  } catch (error) {
+    if (request === preview.request) preview.error = error.message;
+  } finally {
+    preview.busy = false;
+    if (request === preview.request) renderCollectionEstimate();
+    else if (preview.request && !preview.timer) preview.timer = setTimeout(calculateEstimate, 0);
+  }
+}
 function empty(key,help){return `<div class="empty"><i>${icon('download')}</i><strong>${esc(t(key))}</strong>${help?`<p>${esc(t(help))}</p>`:''}</div>`;}
 function fileButtons(file){return `<button class="primary" data-file-action="play" data-uri="${esc(file.uri)}" data-name="${esc(file.name)}" data-mime="${esc(file.mime)}">${esc(t('play'))}</button><button class="secondary" data-file-action="share" data-uri="${esc(file.uri)}" data-name="${esc(file.name)}" data-mime="${esc(file.mime)}">${esc(t('share'))}</button><button class="secondary" data-file-action="open" data-uri="${esc(file.uri)}" data-name="${esc(file.name)}" data-mime="${esc(file.mime)}">${esc(t('open'))}</button>`;}
 function jobCard(job,removed=false,history=false){const status=job.status||'completed';const running=['running','queued'].includes(status);const label=status==='running'?t(job.phase||'running'):t(status);const iconName=job.kind==='collection'?'list':job.kind==='download'?'download':'convert';const files=job.outputs||[];let actions='';if(removed)actions=`<button class="secondary" data-job="restore" data-id="${esc(job.id)}">${t('restore')}</button>`;else if(!history){if(running)actions=`<button class="secondary" data-job="cancel" data-id="${esc(job.id)}">${t('cancel')}</button>`;else{if(['error','cancelled','interrupted'].includes(status))actions+=`<button class="primary" data-job="retry" data-id="${esc(job.id)}">${t('retry')}</button>`;actions+=`<button class="secondary" data-job="remove" data-id="${esc(job.id)}">${t('remove')}</button>`;}}
+if (!removed && !history && ['download', 'collection'].includes(job.kind) && /^https?:\/\//i.test(job.url || '')) {
+  actions = `<button class="secondary" type="button" data-copy-job="${esc(job.id)}">${t('copyJobUrl')}</button>` + actions;
+}
 return `<article class="job"><div class="job-title"><i>${icon(iconName)}</i><div><h4>${esc(job.title||job.url||'VideoFlow')}</h4><div class="meta">${esc([job.source,(job.format||'').toUpperCase(),job.trackLabel].filter(Boolean).join(' · '))}</div></div><span class="status ${esc(status)}">${esc(label)}</span></div>${running?`<div class="progress-row"><progress max="100" value="${Math.min(100,Math.max(0,job.progress||0))}"></progress><small>${job.progress||0}%</small></div>`:''}${job.error&&status==='error'?`<p class="job-error">${esc(t(job.error))}</p>`:''}${job.count?`<p class="hint">${job.count} videos → ${esc(t('downloads'))}</p>`:''}${files.map(f=>`<p class="hint">${esc(f.name)} · ${bytes(f.bytes)}</p><div class="job-actions">${fileButtons(f)}</div>`).join('')}${actions?`<div class="job-actions">${actions}</div>`:''}</article>`;}
-function renderJobs(){const active=snapshot.jobs.filter(j=>!j.removedAt).reverse(),removed=snapshot.jobs.filter(j=>j.removedAt).reverse();$('#jobs').innerHTML=active.map(j=>jobCard(j)).join('')||empty('emptyQueue','emptyQueueHelp');$('#removedJobs').innerHTML=removed.map(j=>jobCard(j,true)).join('')||empty('emptyRemoved');$('#removedCount').textContent=removed.length;$('#retentionHint').textContent=cfg.retention+' '+t('days')+' · '+t('retentionHelp');$('#queuedCount').textContent=active.filter(j=>j.status==='queued').length;const running=active.filter(j=>j.status==='running').length;$('#activeCount').textContent=running;$('#doneCount').textContent=active.filter(j=>j.status==='completed').length;for(const id of ['#sideCount','#bottomCount']){$(id).textContent=running;$(id).hidden=!running;}$('#restoreAll').disabled=!removed.length;$('#clearRemoved').disabled=!removed.length;$('#clearCompleted').disabled=!active.some(j=>j.status==='completed');}
+function renderJobs() {
+  const active = snapshot.jobs.filter(j => !j.removedAt).reverse();
+  const removed = snapshot.jobs.filter(j => j.removedAt).reverse();
+  const filter = $('#downloadFilter').value;
+  const order = $('#downloadOrder').value;
+  const visible = active.filter(job => !filter || job.status === filter);
+  if (order === 'oldest') visible.reverse();
+  if (order === 'title') {
+    const titles = new Intl.Collator(cfg.language, {sensitivity: 'base', numeric: true});
+    visible.sort((a, b) => titles.compare(a.title || a.url || '', b.title || b.url || ''));
+  }
+  $('#jobs').innerHTML = visible.map(job => jobCard(job)).join('')
+    || (active.length ? empty('emptyStatus') : empty('emptyQueue', 'emptyQueueHelp'));
+  $('#removedJobs').innerHTML = removed.map(job => jobCard(job, true)).join('') || empty('emptyRemoved');
+  $('#removedCount').textContent = removed.length;
+  $('#retentionHint').textContent = cfg.retention + ' ' + t('days') + ' · ' + t('retentionHelp');
+  $('#queuedCount').textContent = active.filter(job => job.status === 'queued').length;
+  const running = active.filter(job => job.status === 'running').length;
+  const completed = active.filter(job => job.status === 'completed').length;
+  $('#activeCount').textContent = running;
+  $('#doneCount').textContent = completed;
+  for (const id of ['#sideCount', '#bottomCount']) {
+    $(id).textContent = running;
+    $(id).hidden = !running;
+  }
+  $('#restoreAll').disabled = !removed.length;
+  $('#clearRemoved').disabled = !removed.length;
+  $('#clearCompleted').disabled = !completed;
+}
 function renderHistory(){const query=$('#historySearch').value.toLowerCase();const history=[...snapshot.history].reverse().filter(j=>[j.title,j.url,j.source].join(' ').toLowerCase().includes(query));$('#historyList').innerHTML=history.map(j=>jobCard(j,false,true)).join('')||empty(query?'noResults':'emptyHistory');}
 function renderPlayer(){const files=[...snapshot.history].reverse().flatMap(j=>j.outputs||[]).slice(0,8);$('#playerFiles').innerHTML=files.map(f=>`<article class="job"><h4>${esc(f.name)}</h4><small>${bytes(f.bytes)}</small><div class="job-actions">${fileButtons(f)}</div></article>`).join('')||empty('emptyHistory');}
 async function refresh(){if(refreshing)return;refreshing=true;try{snapshot=await rpc('state');$('#engineStatus').textContent=t(snapshot.engine.ready?'ready':snapshot.engine.error?'error':'preparing');$('#engineVersion').textContent=snapshot.engine.error?t(snapshot.engine.error):snapshot.engine.version?'yt-dlp '+snapshot.engine.version+' · FFmpeg':t('preparing');$('#sessionState').textContent=t(snapshot.session?'sessionSaved':'noSession');$('#forgetCookies').disabled=!snapshot.session;renderJobs();if(currentPage==='history')renderHistory();if(currentPage==='player')renderPlayer();if(currentPage==='gallery')loadDownloadGallery();}finally{refreshing=false}}
@@ -87,6 +172,38 @@ $('#updateEngine').onclick=()=>action(async()=>{const button=$('#updateEngine');
 matchMedia('(prefers-color-scheme:light)').addEventListener('change',appearance);
 async function start(){translate();initOptions($('#homeOptions'));initOptions($('#collectionOptions'));setTool('audio');renderAppearance();renderJobs();paintIcons();try{snapshot=await rpc('state');cfg={...cfg,...snapshot.settings};translate();settingsFields();appearance();renderAppearance();initOptions($('#homeOptions'));initOptions($('#collectionOptions'));setTool(tool);await refresh();}catch(e){if(window.Native)toast(t(e.message));}setInterval(()=>{if(!document.hidden&&window.Native)refresh().catch(()=>{});},1400);}
 Object.assign(strings, wallpaperCopy);
+Object.assign(strings, {
+  filterStatus: ['Filtrar por estado', 'Filter by status', 'Filtrar por status'],
+  allStatuses: ['Todos los estados', 'All statuses', 'Todos os status'],
+  onlyErrors: ['Solo errores', 'Errors only', 'Só erros'],
+  sortDownloads: ['Ordenar por', 'Sort by', 'Ordenar por'],
+  newest: ['Más recientes', 'Newest first', 'Mais recentes'],
+  oldest: ['Más antiguos', 'Oldest first', 'Mais antigos'],
+  titleOrder: ['Título (A–Z)', 'Title (A–Z)', 'Título (A–Z)'],
+  emptyStatus: ['No hay descargas con ese estado.', 'No downloads match this status.', 'Nenhum download com esse status.'],
+  copyJobUrl: ['Copiar enlace', 'Copy link', 'Copiar link'],
+  linkCopied: ['Enlace copiado', 'Link copied', 'Link copiado'],
+  sizeEstimate: ['Tamaño estimado de la colección', 'Estimated collection size', 'Tamanho estimado da coleção'],
+  sizeSubtotal: ['Subtotal estimado de la colección', 'Estimated collection subtotal', 'Subtotal estimado da coleção'],
+  estimatingSize: ['Calculando el tamaño…', 'Estimating the size…', 'Calculando o tamanho…'],
+  sizeUnavailable: ['No se pudo estimar el tamaño con los datos disponibles.', 'The available data was insufficient to estimate the size.', 'Os dados disponíveis não foram suficientes para estimar o tamanho.'],
+  recalculateSize: ['Volver a calcular', 'Recalculate', 'Calcular novamente'],
+  estimatedVideos: ['Estimados {count} de {total}.', 'Estimated {count} of {total}.', 'Estimados {count} de {total}.'],
+  sizeProjection: ['Proyección a partir de una muestra de {count}.', 'Projected from a sample of {count}.', 'Projeção baseada em uma amostra de {count}.'],
+  sizeMayVary: ['El tamaño final puede variar.', 'The final size may vary.', 'O tamanho final pode variar.'],
+});
+$('#downloadFilter').addEventListener('change', renderJobs);
+$('#downloadOrder').addEventListener('change', renderJobs);
+$('#jobs').addEventListener('click', event => {
+  const button = event.target.closest('[data-copy-job]');
+  if (button) action(async () => {
+    await rpc('copyJobUrl', {id: button.dataset.copyJob});
+    toast(t('linkCopied'));
+  });
+});
+$('#collectionUrl').addEventListener('input', () => scheduleEstimate());
+$('#collectionOptions').addEventListener('change', () => scheduleEstimate());
+$('#retryEstimate').onclick = () => scheduleEstimate(true);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&window.Native)refresh().catch(()=>{})});
 start();
 initMobileWallpapers();

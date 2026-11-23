@@ -105,6 +105,9 @@ public final class Engine {
     private static YoutubeDLRequest base(Context context, String url) {
         YoutubeDLRequest request = new YoutubeDLRequest(checkedUrl(url));
         if (SINGLE_VIDEO_POSTS.contains(source(url))) request.addOption("--playlist-items", "1");
+        return configureRequest(context, request);
+    }
+    private static YoutubeDLRequest configureRequest(Context context, YoutubeDLRequest request) {
         request.addOption("--ignore-config"); request.addOption("--no-warnings"); request.addOption("--socket-timeout", 20);
         request.addOption("--plugin-dirs", new File(context.getNoBackupFilesDir(), "plugins").getAbsolutePath());
         request.addOption("--use-postprocessor", "VideoFlowCDN:when=pre_process");
@@ -167,16 +170,68 @@ public final class Engine {
         JSONArray resolutions = new JSONArray(); for (Integer h : heights) resolutions.put(h);
         Store.put(result, "tracks", tracks); Store.put(result, "heights", resolutions); return result;
     }
-    public static JSONArray collection(Context context, JSONObject job) throws Exception {
-        String url = job.optString("url");
+    record CollectionVideo(String url, String id, String title, String thumbnail, double duration) { }
+
+    static List<CollectionVideo> collection(Context context, String url, String processId, boolean preview) throws Exception {
         if (!"YouTube".equals(source(url))) throw new IllegalArgumentException("invalid_collection");
         init(context); YoutubeDLRequest request = base(context, url);
         request.addOption("--yes-playlist"); request.addOption("--flat-playlist"); request.addOption("--skip-download");
         request.addOption("--ignore-errors"); request.addOption("--dump-single-json");
-        JSONObject info = new JSONObject(execute(context, request, job.optString("id"), null).getOut());
-        JSONArray entries = info.optJSONArray("entries");
-        if (entries == null || entries.length() == 0) throw new IllegalArgumentException("empty_collection");
-        return entries;
+        if (preview) configurePreview(request);
+        String response = execute(context, request, processId, null).getOut().trim();
+        if (response.isEmpty()) throw new IllegalArgumentException("empty_collection");
+        List<CollectionVideo> videos = new ArrayList<>();
+        collectVideos(new JSONObject(response).optJSONArray("entries"), videos, new HashSet<>(), processId);
+        if (videos.isEmpty()) throw new IllegalArgumentException("empty_collection");
+        return videos;
+    }
+    private static void collectVideos(JSONArray entries, List<CollectionVideo> videos, Set<String> seen, String processId)
+            throws InterruptedException {
+        if (entries == null) return;
+        for (int i = 0; i < entries.length(); i++) {
+            if (isCancelled(processId)) throw new InterruptedException("cancelled");
+            JSONObject entry = entries.optJSONObject(i);
+            if (entry == null || entry.optString("availability").equals("private")) continue;
+            JSONArray nested = entry.optJSONArray("entries");
+            if (nested != null) {
+                collectVideos(nested, videos, seen, processId);
+                continue;
+            }
+            String id = entry.optString("id");
+            String url = entry.optString("webpage_url", entry.optString("url"));
+            if (!url.startsWith("http") && id.matches("[A-Za-z0-9_-]{11}")) url = "https://www.youtube.com/watch?v=" + id;
+            try { url = checkedUrl(url); }
+            catch (IllegalArgumentException e) { continue; }
+            if (seen.add(url)) {
+                videos.add(new CollectionVideo(url, id, entry.optString("title", url),
+                        entry.optString("thumbnail"), entry.optDouble("duration", 0)));
+            }
+        }
+    }
+    private static void configurePreview(YoutubeDLRequest request) {
+        request.addOption("--socket-timeout", 10);
+        request.addOption("--retries", 0);
+        request.addOption("--extractor-retries", 0);
+    }
+    static Map<String, JSONObject> sampleCollection(Context context, List<CollectionVideo> sample, JSONObject options,
+                                                     String processId) throws Exception {
+        List<String> urls = new ArrayList<>();
+        for (CollectionVideo video : sample) urls.add(video.url());
+        YoutubeDLRequest request = configureRequest(context, new YoutubeDLRequest(urls));
+        configurePreview(request);
+        request.addOption("--playlist-items", "1");
+        request.addOption("--no-playlist"); request.addOption("--skip-download");
+        request.addOption("--ignore-errors"); request.addOption("--dump-json");
+        request.addOption("-f", formatSelector(options));
+        Map<String, JSONObject> formats = new HashMap<>();
+        for (String line : execute(context, request, processId, null).getOut().split("\\R")) {
+            if (!line.startsWith("{")) continue;
+            JSONObject info = new JSONObject(line);
+            formats.put(info.optString("id"), info);
+            String url = info.optString("original_url", info.optString("webpage_url"));
+            formats.put(url, info);
+        }
+        return formats;
     }
     public static JSONArray download(Context context, JSONObject job, Progress progress) throws Exception {
         init(context); String id = job.optString("id"); File work = workDir(context, id);
@@ -187,29 +242,11 @@ public final class Engine {
         request.addOption("--no-overwrites"); request.addOption("--restrict-filenames"); request.addOption("--trim-filenames", 160);
         request.addOption("-o", new File(work, "%(title).120B [%(id)s].%(ext)s").getAbsolutePath());
         request.addCommands(List.of("--print-to-file", "after_move:%(filepath)s", new File(work, "outputs.txt").getAbsolutePath()));
-        String format = job.optString("format", "mp4"), mode = job.optString("mode", "video"), quality = job.optString("quality", "720");
-        if (!Set.of("mp4", "mkv", "webm", "mov", "avi", "mp3", "ogg", "m4a", "flac", "wav", "opus").contains(format)) throw new IllegalArgumentException("invalid_format");
-        String height = quality.matches("\\d{2,4}") ? "[height<=" + quality + "]" : "";
-        JSONArray ids = job.optJSONArray("formatIds"); String track = "";
-        if (ids != null && ids.length() > 0) {
-            List<String> valid = new ArrayList<>();
-            for (int i = 0; i < ids.length(); i++) { String fid = ids.optString(i); if (fid.matches("[A-Za-z0-9_.+-]{1,100}")) valid.add(fid.replace(".", "\\.").replace("+", "\\+")); }
-            if (valid.isEmpty()) throw new IllegalArgumentException("invalid_track");
-            track = "[format_id~='^(" + String.join("|", valid) + ")$']";
-        }
-        boolean audio = mode.equals("audio");
-        String selector;
-        if (audio) selector = "bestaudio" + track + "/best" + track;
-        else if (mode.equals("silent")) selector = "bestvideo" + height + "/best" + height;
-        else if (!track.isEmpty()) selector = "bestvideo" + height + "+bestaudio" + track + "/best" + height + track;
-        else if (format.equals("mp4")) selector = "bestvideo" + height + "[ext=mp4]+bestaudio[ext=m4a]/best" + height + "[ext=mp4]/bestvideo" + height + "+bestaudio/best" + height;
-        else selector = "bestvideo" + height + "+bestaudio/best" + height;
-        if (mode.equals("video") && track.isEmpty() && SINGLE_VIDEO_POSTS.contains(source(url))) selector += "/bestvideo" + height;
-        request.addOption("-f", selector);
-        if (audio) {
+        String format = job.optString("format", "mp4"), mode = job.optString("mode", "video");
+        request.addOption("-f", formatSelector(job));
+        if (mode.equals("audio")) {
             request.addOption("-x"); request.addOption("--audio-format", format.equals("ogg") ? "vorbis" : format);
-            String bitrate = job.optString("bitrate", "192"); if (!Set.of("128", "192", "256", "320").contains(bitrate)) bitrate = "192";
-            request.addOption("--audio-quality", bitrate + "K");
+            request.addOption("--audio-quality", audioBitrate(job) + "K");
         } else {
             String container = Set.of("mov", "avi").contains(format) ? "mkv" : format;
             request.addOption("--merge-output-format", container);
@@ -247,6 +284,31 @@ public final class Engine {
             result.put(published);
         }
         return result;
+    }
+    static int audioBitrate(JSONObject job) {
+        int bitrate = job.optInt("bitrate", 192);
+        return Set.of(128, 192, 256, 320).contains(bitrate) ? bitrate : 192;
+    }
+    private static String formatSelector(JSONObject job) {
+        String format = job.optString("format", "mp4"), mode = job.optString("mode", "video"), quality = job.optString("quality", "720");
+        if (!Set.of("mp4", "mkv", "webm", "mov", "avi", "mp3", "ogg", "m4a", "flac", "wav", "opus").contains(format))
+            throw new IllegalArgumentException("invalid_format");
+        String height = quality.matches("\\d{2,4}") ? "[height<=" + quality + "]" : "";
+        JSONArray ids = job.optJSONArray("formatIds"); String track = "";
+        if (ids != null && ids.length() > 0) {
+            List<String> valid = new ArrayList<>();
+            for (int i = 0; i < ids.length(); i++) { String fid = ids.optString(i); if (fid.matches("[A-Za-z0-9_.+-]{1,100}")) valid.add(fid.replace(".", "\\.").replace("+", "\\+")); }
+            if (valid.isEmpty()) throw new IllegalArgumentException("invalid_track");
+            track = "[format_id~='^(" + String.join("|", valid) + ")$']";
+        }
+        String selector;
+        if (mode.equals("audio")) selector = "bestaudio" + track + "/best" + track;
+        else if (mode.equals("silent")) selector = "bestvideo" + height + "/best" + height;
+        else if (!track.isEmpty()) selector = "bestvideo" + height + "+bestaudio" + track + "/best" + height + track;
+        else if (format.equals("mp4")) selector = "bestvideo" + height + "[ext=mp4]+bestaudio[ext=m4a]/best" + height + "[ext=mp4]/bestvideo" + height + "+bestaudio/best" + height;
+        else selector = "bestvideo" + height + "+bestaudio/best" + height;
+        if (mode.equals("video") && track.isEmpty() && SINGLE_VIDEO_POSTS.contains(source(job.optString("url")))) selector += "/bestvideo" + height;
+        return selector;
     }
     private static double videoDuration(File file) {
         try (MediaMetadataRetriever retriever = new MediaMetadataRetriever()) {

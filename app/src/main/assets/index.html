@@ -58,6 +58,18 @@
       <div class="stats"><article><span data-i="queued">En cola</span><strong id="queuedCount">0</strong></article><article><span data-i="running">Activas</span><strong id="activeCount">0</strong></article><article><span data-i="completed">Completadas</span><strong id="doneCount">0</strong></article></div>
       <button type="button" class="secondary wide gallery-shortcut" data-page="gallery"><i data-icon="play"></i><span data-i="viewGallery">Ver galería</span></button>
       <div class="section-actions"><h3 data-i="workQueue">Tu cola de trabajo</h3><button id="clearCompleted" class="text-button" data-i="removeCompleted">Retirar completadas</button></div>
+      <div class="download-filters">
+        <label class="field"><span data-i="filterStatus">Filtrar por estado</span><select id="downloadFilter">
+          <option value="" data-i="allStatuses">Todos los estados</option>
+          <option value="error" data-i="onlyErrors">Solo errores</option>
+          <option value="completed" data-i="completed">Completadas</option>
+        </select></label>
+        <label class="field"><span data-i="sortDownloads">Ordenar por</span><select id="downloadOrder">
+          <option value="newest" data-i="newest">Más recientes</option>
+          <option value="oldest" data-i="oldest">Más antiguos</option>
+          <option value="title" data-i="titleOrder">Título (A–Z)</option>
+        </select></label>
+      </div>
       <div id="jobs" class="job-list"></div>
       <details class="panel removed-panel"><summary><span data-i="removed">Retiradas temporalmente</span> <b id="removedCount">0</b></summary><p class="hint" id="retentionHint"></p><div class="button-row"><button id="restoreAll" class="secondary" data-i="restoreAll">Restaurar todas</button><button id="clearRemoved" class="danger" data-i="emptyAll">Vaciar</button></div><div id="removedJobs" class="job-list"></div></details>
     </section>
@@ -77,7 +89,21 @@
     </section>
     <section id="page-collections" class="page">
       <div class="hero"><span class="eyebrow" data-i="library">TU BIBLIOTECA COMPLETA</span><h2 data-i="collections">Listas y canales</h2><p data-i="collectionIntro">Una dirección. Todos sus videos disponibles.</p></div>
-      <section class="panel"><h3 data-i="youtubeCollection">Colección de YouTube</h3><label class="field"><span data-i="collectionUrl">Enlace de lista o canal</span><input id="collectionUrl" type="url" placeholder="https://www.youtube.com/playlist?list=…"></label><div id="collectionOptions" class="options-grid"></div><button class="primary wide" id="importCollection"><i data-icon="list"></i><span data-i="downloadCollection">Descargar colección</span></button><p class="hint" data-i="collectionHelp">Cada video se añade a la cola. Se omiten duplicados y entradas privadas; un error no detiene los demás.</p></section>
+      <section class="panel">
+        <h3 data-i="youtubeCollection">Colección de YouTube</h3>
+        <label class="field"><span data-i="collectionUrl">Enlace de lista o canal</span><input id="collectionUrl" type="url" placeholder="https://www.youtube.com/playlist?list=…"></label>
+        <div id="collectionOptions" class="options-grid"></div>
+        <div id="collectionEstimate" class="collection-estimate" hidden>
+          <div role="status" aria-live="polite" aria-atomic="true">
+            <strong id="estimateLabel">Tamaño estimado de la colección</strong>
+            <strong id="estimateBytes"></strong>
+            <p id="estimateDetail" class="hint"></p>
+          </div>
+          <button id="retryEstimate" class="text-button" type="button" data-i="recalculateSize" hidden>Volver a calcular</button>
+        </div>
+        <button class="primary wide" id="importCollection"><i data-icon="list"></i><span data-i="downloadCollection">Descargar colección</span></button>
+        <p class="hint" data-i="collectionHelp">Cada video se añade a la cola. Se omiten duplicados y entradas privadas; un error no detiene los demás.</p>
+      </section>
     </section>
     <section id="page-tools" class="page">
       <div class="hero"><span class="eyebrow" data-i="studio">TUS ARCHIVOS, A TU MANERA</span><h2 data-i="transform">Convierte. Comprime. Guarda.</h2><p data-i="originals">Se crean archivos nuevos. Tus originales se conservan.</p></div>

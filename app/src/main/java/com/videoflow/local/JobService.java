@@ -65,17 +65,13 @@ public class JobService extends Service {
         };
         try {
             if (job.optString("kind").equals("collection")) {
-                JSONArray entries = Engine.collection(this, job); Set<String> seen = new HashSet<>(); int added = 0;
-                for (int i = 0; i < entries.length(); i++) {
+                List<Engine.CollectionVideo> videos = Engine.collection(this, job.optString("url"), id, false);
+                int added = 0;
+                for (Engine.CollectionVideo video : videos) {
                     if (Engine.isCancelled(id)) throw new InterruptedException("cancelled");
-                    JSONObject entry = entries.optJSONObject(i); if (entry == null || entry.optString("availability").equals("private")) continue;
-                    String url = entry.optString("webpage_url", entry.optString("url"));
-                    if (!url.startsWith("http") && entry.optString("id").matches("[A-Za-z0-9_-]{11}")) url = "https://www.youtube.com/watch?v=" + entry.optString("id");
-                    try { url = Engine.checkedUrl(url); } catch (Exception e) { continue; }
-                    if (!seen.add(url)) continue;
                     JSONObject child = Store.cloneJson(job); child.remove("id"); child.remove("formatIds");
-                    Store.put(child, "kind", "download"); Store.put(child, "url", url); Store.put(child, "title", entry.optString("title", url));
-                    Store.put(child, "source", Engine.source(url)); Store.put(child, "thumbnail", entry.optString("thumbnail")); store.add(child); added++;
+                    Store.put(child, "kind", "download"); Store.put(child, "url", video.url()); Store.put(child, "title", video.title());
+                    Store.put(child, "source", Engine.source(video.url())); Store.put(child, "thumbnail", video.thumbnail()); store.add(child); added++;
                 }
                 if (added == 0) throw new IllegalArgumentException("empty_collection");
                 store.update(id, "count", added); store.finish(id, new JSONArray());

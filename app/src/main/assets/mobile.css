@@ -8,3 +8,22 @@
 
 .platforms button[data-source="Twitch"] img { border-radius: 25%; }
 .job { overflow-wrap: anywhere; }
+
+.download-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.download-filters .field { min-width: 0; margin: 0; }
+.download-filters select { font-size: 13px; padding-inline: 9px; }
+.collection-estimate {
+  margin: 0 0 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+#estimateBytes:not(:empty) { display: block; color: var(--primary); font-size: 20px; margin-top: 3px; }
+.collection-estimate .hint { margin: 5px 0 0; }

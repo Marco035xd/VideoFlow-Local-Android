@@ -23,6 +23,8 @@ public class MainActivity extends AppCompatActivity {
     private ProfileImports profileImports;
     private DownloadGallery downloadGallery;
     private final ExecutorService io = Executors.newFixedThreadPool(2);
+    private final ExecutorService previewWorker = Executors.newSingleThreadExecutor();
+    private final CollectionEstimate collectionEstimate = new CollectionEstimate();
     private final Handler main = new Handler(Looper.getMainLooper());
     private String pickerId, pickerKind, sharedText = "";
     private boolean loaded;
@@ -82,9 +84,15 @@ public class MainActivity extends AppCompatActivity {
                 if (web == null || web.getUrl() == null || !web.getUrl().startsWith(ORIGIN + "assets/")) return;
                 JSONObject data;
                 try { data = new JSONObject(payload); } catch (Exception e) { reply(id, null, "invalid_request"); return; }
-                if (Set.of("pick", "play", "share", "open", "clipboard", "cancel", "enqueue", "retry", "confirmClearRemoved", "confirmClearHistory", "forgetCookies").contains(method)) {
+                if (Set.of("pick", "play", "share", "open", "clipboard", "copyJobUrl", "cancel", "enqueue", "retry", "confirmClearRemoved", "confirmClearHistory", "forgetCookies").contains(method)) {
                     try { uiRequest(id, method, data); } catch (Exception e) { reply(id, null, Engine.error(e)); }
-                } else io.submit(() -> {
+                } else if (method.equals("estimateCollection")) previewWorker.submit(() -> {
+                    try { reply(id, collectionEstimate.calculate(getApplicationContext(), data), null); }
+                    catch (Exception e) {
+                        String code = Engine.error(e);
+                        reply(id, null, code.matches("[a-z_]{3,40}") ? code : "sizeUnavailable");
+                    }
+                }); else io.submit(() -> {
                     try { reply(id, background(method, data), null); } catch (Exception e) { reply(id, null, Engine.error(e)); }
                 });
             });
@@ -138,6 +146,15 @@ public class MainActivity extends AppCompatActivity {
             case "clipboard": {
                 ClipboardManager manager = getSystemService(ClipboardManager.class);
                 reply(id, manager.hasPrimaryClip() ? manager.getPrimaryClip().getItemAt(0).coerceToText(this).toString() : "", null); return;
+            }
+            case "copyJobUrl": {
+                JSONObject job = store.job(data.optString("id"));
+                if (job == null || job.optLong("removedAt") > 0 || !Set.of("download", "collection").contains(job.optString("kind")))
+                    throw new IllegalArgumentException("invalid_request");
+                String url = Engine.checkedUrl(job.optString("url"));
+                ClipboardManager manager = getSystemService(ClipboardManager.class);
+                manager.setPrimaryClip(ClipData.newPlainText("VideoFlow", url));
+                reply(id, true, null); return;
             }
             case "enqueue": {
                 JSONArray items = data.optJSONArray("jobs"); if (items == null || items.length() == 0 || items.length() > 1000) throw new IllegalArgumentException("invalid_request");
@@ -238,5 +255,5 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     @Override public void onBackPressed() { if (web != null) web.evaluateJavascript("window.goBack&&window.goBack()", null); else super.onBackPressed(); }
-    @Override protected void onDestroy() { if (web != null) { web.removeJavascriptInterface("Native"); web.destroy(); web = null; } profileImports.close(); io.shutdown(); super.onDestroy(); }
+    @Override protected void onDestroy() { if (web != null) { web.removeJavascriptInterface("Native"); web.destroy(); web = null; } profileImports.close(); previewWorker.shutdown(); io.shutdown(); super.onDestroy(); }
 }
